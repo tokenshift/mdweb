@@ -12,13 +12,13 @@ textual content of a Markdown file with all **mdweb** directives removed.
 Arguments to both commands are a pattern to match filenames (e.g. "*.go.md"
 will match any `.go.md` file).
 
-## Default Output
+### Default Output
 
 By default, `mdtangle` writes code to a file with the same name as the input
 with the last extension removed; `mdweave` writes to a file with the same name
 as the input with all extensions removed, and `.md` appended.
 
-## Directives
+### Directives
 
 A directive is a line of the form `<<...>>`, and must be placed on its own line
 in a code block (though it does not have to be at the beginning of the block).
@@ -36,3 +36,11 @@ in a code block (though it does not have to be at the beginning of the block).
 
 See https://raw.githubusercontent.com/tokenshift/mdweb/master/example.foo.md
 for an example input file that demonstrates the directives.
+
+## Installation
+
+    go get github.com/tokenshift/mdweb
+    go build github.com/tokenshift/mdweb/mdtangle
+    go build github.com/tokenshift/mdweb/mdweave
+    go install github.com/tokenshift/mdweb/mdtangle
+    go install github.com/tokenshift/mdweb/mdweave
