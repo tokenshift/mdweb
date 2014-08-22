@@ -14,6 +14,6 @@ By default, `mdtangle` writes code to a file with the same name as the input wit
 
 ## Directives
 
-A directive is a line of the form `<<...>>`, and must be placed on its own line in a code block (though it does not have to be at the beginning). With a file name (e.g. `<<target.go>>`), all subsequent code content will be written to that file. An empty/blank directive resets the target file to the default (see above). The `<<!-->>` directive is a special case for code blocks that should be included in the text output, but should not be considered actual code (like examples of use).
+A directive is a line of the form `<<...>>`, and must be placed on its own line in a code block (though it does not have to be at the beginning of the block). With a file name (e.g. `<<target.go>>`), all subsequent code content will be written to that file. An empty/blank directive resets the target file to the default (see above). The `<<!-->>` directive is a special case for code blocks that should be included in the text output, but should not be considered actual code (like examples of use).
 
 See https://raw.githubusercontent.com/tokenshift/mdweb/master/example.foo.md for an example input file that demonstrates the directives.
