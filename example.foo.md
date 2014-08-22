@@ -16,6 +16,10 @@ Quis, risus. Suspendisse faucibus orci et nunc. Nullam vehicula fermentum
 risus. Fusce felis nibh, dignissim vulputate, ultrices quis, lobortis et, arcu.
 Duis aliquam libero non diam.
 
+	<<#-->>
+	This is boilerplate code, which will be included in the output code but
+	omitted from the text.
+
 Vestibulum placerat tincidunt tortor. Ut vehicula ligula quis lectus. In eget
 velit. Quisque vel risus. Mauris pede. Nullam ornare sapien sit amet nisl. Cras
 tortor. Donec tortor lorem, dignissim sit amet, pulvinar eget, mattis eu,

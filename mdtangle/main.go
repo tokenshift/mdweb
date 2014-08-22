@@ -21,16 +21,17 @@ func main() {
 			}
 
 			for line := range lines {
-				if line.IsCode {
-					out, ok := outputFiles[line.Target]
+				if line.CodeTarget != "" {
+					out, ok := outputFiles[line.CodeTarget]
 					if !ok {
-						out, err = os.Create(line.Target)
+						out, err = os.Create(line.CodeTarget)
 						if err != nil {
 							fmt.Fprintln(os.Stderr, err)
 							os.Exit(1)
 						}
 						defer out.Close()
-						outputFiles[line.Target] = out
+						fmt.Println("Writing code to", line.CodeTarget)
+						outputFiles[line.CodeTarget] = out
 					}
 
 					fmt.Fprint(out, line.Text)

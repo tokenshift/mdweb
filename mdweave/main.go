@@ -23,10 +23,16 @@ func main() {
 				os.Exit(1)
 			}
 
+			fmt.Println("Writing text to", target)
 			for line := range lines {
-				if line.IsCode {
+				if line.TextTarget == "" {
+					continue
+				}
+
+				if line.CodeTarget != "" {
 					fmt.Fprint(file, "\t")
 				}
+
 				fmt.Fprint(file, line.Text)
 			}
 		}

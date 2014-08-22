@@ -8,26 +8,9 @@ import "regexp"
 import "strings"
 
 type Line struct {
-	IsCode bool
-	Target string
+	CodeTarget string
+	TextTarget string
 	Text string
-}
-
-// Removes a single extension from the filename.
-func removeExtension(filename string) string {
-	filename = filepath.Base(filename)
-	ext := filepath.Ext(filename)
-	return filename[0:len(filename)-len(ext)]
-}
-
-// Removes all extensions from the filename.
-func removeExtensions(filename string) string {
-	f1, f2 := filename, removeExtension(filename)
-	for f1 != f2 {
-		f1, f2 = f2, removeExtension(f2)
-	}
-
-	return f2
 }
 
 // Splits an input file into code and text chunks. Code chunks may be prefixed
@@ -69,7 +52,8 @@ func ProcessFile(filename string) (textTarget string, lines <-chan Line, err err
 }
 
 var currentTarget string
-var isComment = false
+var isBoilerplate = false
+var isExample = false
 var targetCodeFile string
 var targetTextFile string
 var rxDirective = regexp.MustCompile("^<<(.*)>>\\s*$")
@@ -83,10 +67,10 @@ func processLine(line string, lines chan Line) {
 
 	if strings.HasPrefix(line, "\t") || strings.HasPrefix(line, "    ") {
 		// Process as code, unless part of a comment block.
-		if isComment {
+		if isExample {
 			lines <- Line {
-				IsCode: false,
-				Target: targetTextFile,
+				CodeTarget: "",
+				TextTarget: targetTextFile,
 				Text: line,
 			}
 			return
@@ -103,26 +87,40 @@ func processLine(line string, lines chan Line) {
 		if matches != nil {
 			// Process the directive.
 			directive := strings.TrimSpace(matches[1])
-			if directive == "!--" {
+			switch directive {
+			case "!--":
 				// This code block is a comment. Treat it as text rather than
 				// code.
-				isComment = true
-			} else {
+				isExample = true
+			case "#--":
+				// This code block is boilerplate, which should be omitted from
+				// the text output.
+				isBoilerplate = true
+			default:
 				// Set the target file.
 				currentTarget = directive
 			}
+
 			return
 		}
 
-		if !isComment {
+		if !isExample {
 			writingCode = true
 		}
 
 		// Otherwise, write to the current target code file.
-		lines <- Line {
-			IsCode: true,
-			Target: currentTarget,
-			Text: line,
+		if isBoilerplate {
+			lines <- Line {
+				CodeTarget: currentTarget,
+				TextTarget: "",
+				Text: line,
+			}
+		} else {
+			lines <- Line {
+				CodeTarget: currentTarget,
+				TextTarget: targetTextFile,
+				Text: line,
+			}
 		}
 
 		return
@@ -131,20 +129,49 @@ func processLine(line string, lines chan Line) {
 	// If the line is blank and code was being written, include a blank line
 	// in the last code block.
 	if writingCode && strings.TrimSpace(line) == "" {
-		lines <- Line {
-			IsCode: true,
-			Target: currentTarget,
-			Text: line,
+		// If boilerplate was being written, omit the blank line from the text
+		// output.
+		if isBoilerplate {
+			lines <- Line {
+				CodeTarget: currentTarget,
+				TextTarget: "",
+				Text: line,
+			}
+		} else {
+			lines <- Line {
+				CodeTarget: currentTarget,
+				TextTarget: targetTextFile,
+				Text: line,
+			}
 		}
+
 		return
 	}
 
 	// Write all other text directly to the output text file.
-	isComment = false
+	isBoilerplate = false
+	isExample = false
 	writingCode = false
 	lines <- Line {
-		IsCode: false,
-		Target: targetTextFile,
+		CodeTarget: "",
+		TextTarget: targetTextFile,
 		Text: line,
 	}
+}
+
+// Removes a single extension from the filename.
+func removeExtension(filename string) string {
+	filename = filepath.Base(filename)
+	ext := filepath.Ext(filename)
+	return filename[0:len(filename)-len(ext)]
+}
+
+// Removes all extensions from the filename.
+func removeExtensions(filename string) string {
+	f1, f2 := filename, removeExtension(filename)
+	for f1 != f2 {
+		f1, f2 = f2, removeExtension(f2)
+	}
+
+	return f2
 }
