@@ -23,14 +23,14 @@ as the input with all extensions removed, and `.md` appended.
 A directive is a line of the form `<<...>>`, and must be placed on its own line
 in a code block (though it does not have to be at the beginning of the block).
 
-* **`<<_filename_>>`**
+* `<<filename>>`  
   Sets the target file to the specified (relative) path. All subsequent code
   will be written to that file, rather than the default.
-* **`<<>>`**
+* `<<>>`  
   Resets the target file to the default.
-* **`<<!-->>`
+* `<<!-->>`  
   Example code that should be included in text output, but not in code.
-* **`<<#-->>`
+* `<<#-->>`  
   Boilerplate code that should be omitted from the text output, but included in
   the code.
 
