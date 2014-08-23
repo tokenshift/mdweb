@@ -80,7 +80,7 @@ and produces both a state transition and a single output `Line`.
 	}
 
 There are four different states, corresponding to the type of the last line
-that was read.
+that was read:
 
 * `Code`  
   Any text indented by a tab or 4 space.
@@ -88,8 +88,10 @@ that was read.
   Code that shouldn't be included in documentation.
 * `Example`  
   Code that should _only_ be included in documentation.
-* `Text`
+* `Text`  
   Any other text.
+
+Each line that is processed determines the next state.
 
 	type lineType int
 	const (
@@ -100,7 +102,7 @@ that was read.
 	)
 
 Two additional line types are recognized, but not used as states. Directives
-are lines of the form `<<_directive_>>`, indented like code;
+are lines of the form `<<`_`directive`_`>>`, indented like code;
 
 	var rxDirective = regexp.MustCompile("^<<(.*)>>\\s*$")
 
