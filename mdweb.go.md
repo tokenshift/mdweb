@@ -113,7 +113,7 @@ Each line that is processed determines the next state.
 	)
 
 Two additional line types are recognized, but not used as states. Directives
-are lines of the form `<<`_`directive`_`>>`, indented like code;
+are lines of the form `<<`_`directive`_`>>`, indented like code:
 
 	var rxDirective = regexp.MustCompile("^<<(.*)>>\\s*$")
 
@@ -155,6 +155,9 @@ output files. These are are initialized once, when the file processor starts.
 	var defaultTextOutput string
 	var currentTarget string
 
+Each line is processed by first checking for and handling a directive, and then
+handling code, text or blank lines based on the current state.
+
 	func processLine(line string, lines chan<- Line) {
 		directive, isDirective := parseDirective(line)
 		if isDirective {
@@ -167,6 +170,9 @@ output files. These are are initialized once, when the file processor starts.
 
 		switch state {
 		case Code:
+
+While processing a code block, any blank lines are treated as part of the code.
+
 			if isCode || isBlank {
 				lines <- Line {
 					Code: codeLine,
@@ -183,6 +189,11 @@ output files. These are are initialized once, when the file processor starts.
 					TextTarget: defaultTextOutput,
 				}
 			}
+
+Boilerplate is routed only to the code output, not to documentation. This state
+will have been set once using a directive, and remains in effect as long as
+code (indented) lines are being processed.
+
 		case Boilerplate:
 			if isCode || isBlank {
 				lines <- Line {
@@ -200,6 +211,11 @@ output files. These are are initialized once, when the file processor starts.
 					TextTarget: defaultTextOutput,
 				}
 			}
+
+Example code is written _only_ to documentation, not to output code. Again,
+this state will have been set using a directive and will persist until the next
+non-code line.
+
 		case Example:
 			if isCode || isBlank {
 				lines <- Line {
@@ -217,6 +233,12 @@ output files. These are are initialized once, when the file processor starts.
 					TextTarget: defaultTextOutput,
 				}
 			}
+
+When processing normal text, the only possible transitions are Text -> Text
+(continue processing normal text) and Text -> Code (begin processing a code
+block). The only way to switch to the Boilerplate or Example state is through
+a directive.
+
 		case Text:
 			if isCode {
 				state = Code
@@ -237,7 +259,7 @@ output files. These are are initialized once, when the file processor starts.
 		}
 	}
 
-There are 3 (and a half?) types of directives.
+There are 3 (and a half?) types of directives:
 
 	func processDirective(directive string) {
 		switch directive {

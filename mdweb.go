@@ -116,6 +116,7 @@ func processLine(line string, lines chan<- Line) {
 
 	switch state {
 	case Code:
+
 		if isCode || isBlank {
 			lines <- Line {
 				Code: codeLine,
@@ -132,6 +133,7 @@ func processLine(line string, lines chan<- Line) {
 				TextTarget: defaultTextOutput,
 			}
 		}
+
 	case Boilerplate:
 		if isCode || isBlank {
 			lines <- Line {
@@ -149,6 +151,7 @@ func processLine(line string, lines chan<- Line) {
 				TextTarget: defaultTextOutput,
 			}
 		}
+
 	case Example:
 		if isCode || isBlank {
 			lines <- Line {
@@ -166,6 +169,7 @@ func processLine(line string, lines chan<- Line) {
 				TextTarget: defaultTextOutput,
 			}
 		}
+
 	case Text:
 		if isCode {
 			state = Code
