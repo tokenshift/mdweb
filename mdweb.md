@@ -16,7 +16,7 @@ or documentation, that target field will be empty.
 		Text string
 		TextTarget string
 	}
-	
+
 The output file names are selected by removing one or more extensions from the
 input filename. Documentation is written to a file with all of the extensions
 replaced with `.md`; code is written to a file with only the last extension
@@ -34,17 +34,17 @@ The output code filename can be overridden with the use of a _target directive_
 		ext := filepath.Ext(filename)
 		return filename[0:len(filename)-len(ext)]
 	}
-	
+
 	// Removes all extensions from the filename.
 	func removeExtensions(filename string) string {
 		f1, f2 := filename, removeExtension(filename)
 		for f1 != f2 {
 			f1, f2 = f2, removeExtension(f2)
 		}
-	
+
 		return f2
 	}
-	
+
 File processing is implemented as a state machine. Each input line is an event,
 and produces both a state transition and a single output `Line`.
 
@@ -52,33 +52,33 @@ and produces both a state transition and a single output `Line`.
 		defaultCodeOutput = removeExtension(filename)
 		defaultTextOutput = removeExtensions(filename) + ".md"
 		currentTarget = defaultCodeOutput
-	
+
 		input, err := os.Open(filename)
 		if err != nil {
 			return
 		}
-	
+
 		reader := bufio.NewReader(input)
 		out := make(chan Line)
-	
+
 		go func () {
 			defer close(out)
-	
+
 			for {
 				line, err := reader.ReadString('\n')
 				if err == nil || err == io.EOF {
 					processLine(line, out)
 				}
-	
+
 				if err != nil {
 					break
 				}
 			}
 		}()
-	
+
 		return out, nil
 	}
-	
+
 There are four different states, corresponding to the type of the last line
 that was read.
 
@@ -98,12 +98,12 @@ that was read.
 		Example
 		Text
 	)
-	
+
 Two additional line types are recognized, but not used as states. Directives
 are lines of the form `<<_directive_>>`, indented like code;
 
 	var rxDirective = regexp.MustCompile("^<<(.*)>>\\s*$")
-	
+
 	func unindent(line string) (string, bool) {
 		if strings.HasPrefix(line, "\t") {
 			return line[1:], true
@@ -113,45 +113,45 @@ are lines of the form `<<_directive_>>`, indented like code;
 			return line, false
 		}
 	}
-	
+
 	func parseDirective(line string) (directive string, ok bool) {
 		line, isIndented := unindent(line)
 		if !isIndented {
 			return "", false
 		}
-	
+
 		matches := rxDirective.FindStringSubmatch(line)
 		if matches == nil {
 			return "", false
 		}
-	
+
 		return strings.TrimSpace(matches[1]), true
 	}
-	
+
 and blank lines, as a special case, may be treated as code, documentation or
 both, depending on the current state.
 
 The state machine starts out in the `Text` state.
 	
 	var state = Text
-	
+
 In addition to the state itself, the file processor keeps track of the current
 output files. These are are initialized once, when the file processor starts.
 
 	var defaultCodeOutput string
 	var defaultTextOutput string
 	var currentTarget string
-	
+
 	func processLine(line string, lines chan<- Line) {
 		directive, isDirective := parseDirective(line)
 		if isDirective {
 			processDirective(directive)
 			return
 		}
-	
+
 		codeLine, isCode := unindent(line)
 		isBlank := strings.TrimSpace(line) == ""
-	
+
 		switch state {
 		case Code:
 			if isCode || isBlank {
@@ -223,24 +223,24 @@ output files. These are are initialized once, when the file processor starts.
 			}
 		}
 	}
-	
+
 There are 3 (and a half?) types of directives.
 
 	func processDirective(directive string) {
 		switch directive {
-	
+
 The `<<!-->>` directive indicates comment/example code, which should be
 included in documentation, but not in code.
 
 		case "!--":
 			state = Example
-	
+
 The `<<#-->>` directive does the opposite, indicating boilerplate code that is
 needed for the code output, but shouldn't be included in documentation.
 
 		case "#--":
 			state = Boilerplate
-	
+
 Any other directive is treated as a filename, to which all subsequent code will
 be written. The 'half' case is an empty directive (e.g. `<<>>`), which simply
 resets the target file to the default.
@@ -254,7 +254,7 @@ resets the target file to the default.
 			}
 		}
 	}
-	
+
 The command line tools `mdtangle` and `mdweave` take filesystem globs as
 arguments and process each matching file. Because the contents for each output
 file may be spread across multiple input files (and redirected using
@@ -263,17 +263,17 @@ processed.
 
 	func ProcessFiles(writeCode, writeText bool, patterns ...string) {
 		outputFiles := make(map[string]*os.File)
-	
+
 		for _, pattern := range patterns {
 			files, _ := filepath.Glob(pattern)
 			for _, file := range files {
 				lines, err := ProcessFile(file)
-	
+
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					os.Exit(1)
 				}
-	
+
 				for line := range lines {
 					if writeCode && line.CodeTarget != "" {
 						out, ok := outputFiles[line.CodeTarget]
@@ -287,10 +287,10 @@ processed.
 							fmt.Println("Writing code to", line.CodeTarget)
 							outputFiles[line.CodeTarget] = out
 						}
-	
+
 						fmt.Fprint(out, line.Code)
 					}
-	
+
 					if writeText && line.TextTarget != "" {
 						out, ok := outputFiles[line.TextTarget]
 						if !ok {
@@ -303,11 +303,10 @@ processed.
 							fmt.Println("Writing documentation to", line.TextTarget)
 							outputFiles[line.TextTarget] = out
 						}
-	
+
 						fmt.Fprint(out, line.Text)
 					}
 				}
 			}
 		}
 	}
-	
