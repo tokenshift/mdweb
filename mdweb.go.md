@@ -9,7 +9,6 @@ Markdown-based language agnostic literate programming.
 
 	import "bufio"
 	import "fmt"
-	import "io"
 	import "os"
 	import "path/filepath"
 	import "regexp"
@@ -56,38 +55,21 @@ The output code filename can be overridden with the use of a _target directive_
 		return f2
 	}
 
-File processing is implemented as a state machine. Each input line is an event,
-and produces both a state transition and a single output `Line`.
+File processing is implemented as a state machine. Each state is a function
+that takes the next line of input and returns the next state, as well as
+potentially producing a single output `Line`.
 
-	func ProcessFile(filename string) (lines <-chan Line, err error) {
-		defaultCodeOutput = removeExtension(filename)
-		defaultTextOutput = removeExtensions(filename) + ".md"
-		currentTarget = defaultCodeOutput
+	type State func(data StateData, inputLine string) BoundState
+	type BoundState func(inputLine string) BoundState
 
-		input, err := os.Open(filename)
-		if err != nil {
-			return
-		}
+In addition to the state itself, the file processor keeps track of the current
+output files.
 
-		reader := bufio.NewReader(input)
-		out := make(chan Line)
-
-		go func () {
-			defer close(out)
-
-			for {
-				line, err := reader.ReadString('\n')
-				if err == nil || err == io.EOF {
-					processLine(line, out)
-				}
-
-				if err != nil {
-					break
-				}
-			}
-		}()
-
-		return out, nil
+	type StateData struct {
+		DefaultCodeOutput string
+		DefaultTextOutput string
+		CurrentTarget string
+		Output chan<- Line
 	}
 
 There are four different states, corresponding to the type of the last line
@@ -102,16 +84,112 @@ that was read:
 * `Text`  
   Any other text.
 
-Each line that is processed determines the next state.
+While processing a code block, any blank lines are treated as part of the code.
 
-	type lineType int
-	const (
-		Code lineType = iota
-		Boilerplate
-		Example
-		Text
-	)
+	func stateCode(data StateData, inputLine string) BoundState {
+		codeLine, isCode := unindent(inputLine)
+		isBlank := strings.TrimSpace(inputLine) == ""
 
+		if isCode || isBlank {
+			data.Output <- Line {
+				Code: codeLine,
+				CodeTarget: data.CurrentTarget,
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateCode, data)
+		} else {
+			data.Output <- Line {
+				Code: "",
+				CodeTarget: "",
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateText, data)
+		}
+	}
+
+Boilerplate is routed only to the code output, not to documentation. This state
+will have been set once using a directive, and remains in effect as long as
+code (indented) lines are being processed.
+
+	func stateBoilerplate(data StateData, inputLine string) BoundState {
+		codeLine, isCode := unindent(inputLine)
+		isBlank := strings.TrimSpace(inputLine) == ""
+
+		if isCode || isBlank {
+			data.Output <- Line {
+				Code: codeLine,
+				CodeTarget: data.CurrentTarget,
+				Text: "",
+				TextTarget: "",
+			}
+			return partialState(stateBoilerplate, data)
+		} else {
+			data.Output <- Line {
+				Code: "",
+				CodeTarget: "",
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateText, data)
+		}
+	}
+
+Example code is written _only_ to documentation, not to output code. Again,
+this state will have been set using a directive and will persist until the next
+non-code line.
+
+	func stateExample(data StateData, inputLine string) BoundState {
+		_, isCode := unindent(inputLine)
+		isBlank := strings.TrimSpace(inputLine) == ""
+
+		if isCode || isBlank {
+			data.Output <- Line {
+				Code: "",
+				CodeTarget: "",
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateExample, data)
+		} else {
+			data.Output <- Line {
+				Code: "",
+				CodeTarget: "",
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateText, data)
+		}
+	}
+
+When processing normal text, the only possible transitions are Text -> Text
+(continue processing normal text) and Text -> Code (begin processing a code
+block). The only way to switch to the Boilerplate or Example state is through
+a directive.
+
+	func stateText(data StateData, inputLine string) BoundState {
+		codeLine, isCode := unindent(inputLine)
+
+		if isCode {
+			data.Output <- Line {
+				Code: codeLine,
+				CodeTarget: data.CurrentTarget,
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateCode, data)
+		} else {
+			data.Output <- Line {
+				Code: "",
+				CodeTarget: "",
+				Text: inputLine,
+				TextTarget: data.DefaultTextOutput,
+			}
+			return partialState(stateText, data)
+		}
+	}
+	
 Two additional line types are recognized, but not used as states. Directives
 are lines of the form `<<`_`directive`_`>>`, indented like code:
 
@@ -144,150 +222,93 @@ are lines of the form `<<`_`directive`_`>>`, indented like code:
 and blank lines, as a special case, may be treated as code, documentation or
 both, depending on the current state.
 
-The state machine starts out in the `Text` state.
-	
-	var state = Text
-
-In addition to the state itself, the file processor keeps track of the current
-output files. These are are initialized once, when the file processor starts.
-
-	var defaultCodeOutput string
-	var defaultTextOutput string
-	var currentTarget string
-
 Each line is processed by first checking for and handling a directive, and then
 handling code, text or blank lines based on the current state.
 
-	func processLine(line string, lines chan<- Line) {
-		directive, isDirective := parseDirective(line)
-		if isDirective {
-			processDirective(directive)
-			return
-		}
-
-		codeLine, isCode := unindent(line)
-		isBlank := strings.TrimSpace(line) == ""
-
-		switch state {
-		case Code:
-
-While processing a code block, any blank lines are treated as part of the code.
-
-			if isCode || isBlank {
-				lines <- Line {
-					Code: codeLine,
-					CodeTarget: currentTarget,
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
+	func partialState(s State, data StateData) BoundState {
+		return func(inputLine string) BoundState {
+			if directive, isDirective := parseDirective(inputLine); isDirective {
+				return processDirective(data, directive)
 			} else {
-				state = Text
-				lines <- Line {
-					Code: "",
-					CodeTarget: "",
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
-			}
-
-Boilerplate is routed only to the code output, not to documentation. This state
-will have been set once using a directive, and remains in effect as long as
-code (indented) lines are being processed.
-
-		case Boilerplate:
-			if isCode || isBlank {
-				lines <- Line {
-					Code: codeLine,
-					CodeTarget: currentTarget,
-					Text: "",
-					TextTarget: "",
-				}
-			} else {
-				state = Text
-				lines <- Line {
-					Code: "",
-					CodeTarget: "",
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
-			}
-
-Example code is written _only_ to documentation, not to output code. Again,
-this state will have been set using a directive and will persist until the next
-non-code line.
-
-		case Example:
-			if isCode || isBlank {
-				lines <- Line {
-					Code: "",
-					CodeTarget: "",
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
-			} else {
-				state = Text
-				lines <- Line {
-					Code: "",
-					CodeTarget: "",
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
-			}
-
-When processing normal text, the only possible transitions are Text -> Text
-(continue processing normal text) and Text -> Code (begin processing a code
-block). The only way to switch to the Boilerplate or Example state is through
-a directive.
-
-		case Text:
-			if isCode {
-				state = Code
-				lines <- Line {
-					Code: codeLine,
-					CodeTarget: currentTarget,
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
-			} else {
-				lines <- Line {
-					Code: "",
-					CodeTarget: "",
-					Text: line,
-					TextTarget: defaultTextOutput,
-				}
+				return s(data, inputLine)
 			}
 		}
 	}
 
 There are 3 (and a half?) types of directives:
 
-	func processDirective(directive string) {
+	func processDirective(data StateData, directive string) BoundState {
 		switch directive {
 
 The `<<!-->>` directive indicates comment/example code, which should be
 included in documentation, but not in code.
 
 		case "!--":
-			state = Example
+			return partialState(stateExample, data)
 
 The `<<#-->>` directive does the opposite, indicating boilerplate code that is
 needed for the code output, but shouldn't be included in documentation.
 
 		case "#--":
-			state = Boilerplate
+			return partialState(stateBoilerplate, data)
 
 Any other directive is treated as a filename, to which all subsequent code will
 be written. The 'half' case is an empty directive (e.g. `<<>>`), which simply
 resets the target file to the default.
 
 		default:
-			state = Code
 			if directive == "" {
-				currentTarget = defaultCodeOutput
+				data.CurrentTarget = data.DefaultCodeOutput
 			} else {
-				currentTarget = directive
+				data.CurrentTarget = directive
 			}
+			return partialState(stateCode, data)
 		}
+	}
+
+The output files are initialized when processing begins; only the
+`CurrentTarget` may change during file processing.
+
+	func ProcessFile(filename string) (lines <-chan Line, err error) {
+		out := make(chan Line)
+
+		defaultCodeOutput := removeExtension(filename)
+		data := StateData {
+			DefaultCodeOutput: defaultCodeOutput,
+			DefaultTextOutput: removeExtensions(filename) + ".md",
+			CurrentTarget: defaultCodeOutput,
+			Output: out,
+		}
+
+The state machine begins in the Text state.
+
+		currentState := partialState(stateText, data)
+
+A single line at a time is read from the input stream and passed to the current
+state function.
+
+		input, err := os.Open(filename)
+		if err != nil {
+			return
+		}
+
+		scanner := bufio.NewScanner(input)
+
+		go func () {
+			defer close(data.Output)
+			defer input.Close()
+
+			for scanner.Scan() {
+				currentState = currentState(scanner.Text())
+			}
+
+			if err := scanner.Err(); err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+		}()
+
+		return out, nil
 	}
 
 The command line tools `mdtangle` and `mdweave` take filesystem globs as
@@ -323,7 +344,7 @@ processed.
 							outputFiles[line.CodeTarget] = out
 						}
 
-						fmt.Fprint(out, line.Code)
+						fmt.Fprintln(out, line.Code)
 					}
 
 					if writeText && line.TextTarget != "" {
@@ -339,7 +360,7 @@ processed.
 							outputFiles[line.TextTarget] = out
 						}
 
-						fmt.Fprint(out, line.Text)
+						fmt.Fprintln(out, line.Text)
 					}
 				}
 			}

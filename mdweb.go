@@ -2,7 +2,6 @@ package mdweb
 
 import "bufio"
 import "fmt"
-import "io"
 import "os"
 import "path/filepath"
 import "regexp"
@@ -32,44 +31,106 @@ func removeExtensions(filename string) string {
 	return f2
 }
 
-func ProcessFile(filename string) (lines <-chan Line, err error) {
-	defaultCodeOutput = removeExtension(filename)
-	defaultTextOutput = removeExtensions(filename) + ".md"
-	currentTarget = defaultCodeOutput
+type State func(data StateData, inputLine string) BoundState
+type BoundState func(inputLine string) BoundState
 
-	input, err := os.Open(filename)
-	if err != nil {
-		return
-	}
-
-	reader := bufio.NewReader(input)
-	out := make(chan Line)
-
-	go func () {
-		defer close(out)
-
-		for {
-			line, err := reader.ReadString('\n')
-			if err == nil || err == io.EOF {
-				processLine(line, out)
-			}
-
-			if err != nil {
-				break
-			}
-		}
-	}()
-
-	return out, nil
+type StateData struct {
+	DefaultCodeOutput string
+	DefaultTextOutput string
+	CurrentTarget string
+	Output chan<- Line
 }
 
-type lineType int
-const (
-	Code lineType = iota
-	Boilerplate
-	Example
-	Text
-)
+func stateCode(data StateData, inputLine string) BoundState {
+	codeLine, isCode := unindent(inputLine)
+	isBlank := strings.TrimSpace(inputLine) == ""
+
+	if isCode || isBlank {
+		data.Output <- Line {
+			Code: codeLine,
+			CodeTarget: data.CurrentTarget,
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateCode, data)
+	} else {
+		data.Output <- Line {
+			Code: "",
+			CodeTarget: "",
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateText, data)
+	}
+}
+
+func stateBoilerplate(data StateData, inputLine string) BoundState {
+	codeLine, isCode := unindent(inputLine)
+	isBlank := strings.TrimSpace(inputLine) == ""
+
+	if isCode || isBlank {
+		data.Output <- Line {
+			Code: codeLine,
+			CodeTarget: data.CurrentTarget,
+			Text: "",
+			TextTarget: "",
+		}
+		return partialState(stateBoilerplate, data)
+	} else {
+		data.Output <- Line {
+			Code: "",
+			CodeTarget: "",
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateText, data)
+	}
+}
+
+func stateExample(data StateData, inputLine string) BoundState {
+	_, isCode := unindent(inputLine)
+	isBlank := strings.TrimSpace(inputLine) == ""
+
+	if isCode || isBlank {
+		data.Output <- Line {
+			Code: "",
+			CodeTarget: "",
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateExample, data)
+	} else {
+		data.Output <- Line {
+			Code: "",
+			CodeTarget: "",
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateText, data)
+	}
+}
+
+func stateText(data StateData, inputLine string) BoundState {
+	codeLine, isCode := unindent(inputLine)
+
+	if isCode {
+		data.Output <- Line {
+			Code: codeLine,
+			CodeTarget: data.CurrentTarget,
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateCode, data)
+	} else {
+		data.Output <- Line {
+			Code: "",
+			CodeTarget: "",
+			Text: inputLine,
+			TextTarget: data.DefaultTextOutput,
+		}
+		return partialState(stateText, data)
+	}
+}
 
 var rxDirective = regexp.MustCompile("^<<(.*)>>\\s*$")
 
@@ -97,116 +158,70 @@ func parseDirective(line string) (directive string, ok bool) {
 	return strings.TrimSpace(matches[1]), true
 }
 
-
-var state = Text
-
-var defaultCodeOutput string
-var defaultTextOutput string
-var currentTarget string
-
-func processLine(line string, lines chan<- Line) {
-	directive, isDirective := parseDirective(line)
-	if isDirective {
-		processDirective(directive)
-		return
-	}
-
-	codeLine, isCode := unindent(line)
-	isBlank := strings.TrimSpace(line) == ""
-
-	switch state {
-	case Code:
-
-		if isCode || isBlank {
-			lines <- Line {
-				Code: codeLine,
-				CodeTarget: currentTarget,
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
+func partialState(s State, data StateData) BoundState {
+	return func(inputLine string) BoundState {
+		if directive, isDirective := parseDirective(inputLine); isDirective {
+			return processDirective(data, directive)
 		} else {
-			state = Text
-			lines <- Line {
-				Code: "",
-				CodeTarget: "",
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
-		}
-
-	case Boilerplate:
-		if isCode || isBlank {
-			lines <- Line {
-				Code: codeLine,
-				CodeTarget: currentTarget,
-				Text: "",
-				TextTarget: "",
-			}
-		} else {
-			state = Text
-			lines <- Line {
-				Code: "",
-				CodeTarget: "",
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
-		}
-
-	case Example:
-		if isCode || isBlank {
-			lines <- Line {
-				Code: "",
-				CodeTarget: "",
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
-		} else {
-			state = Text
-			lines <- Line {
-				Code: "",
-				CodeTarget: "",
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
-		}
-
-	case Text:
-		if isCode {
-			state = Code
-			lines <- Line {
-				Code: codeLine,
-				CodeTarget: currentTarget,
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
-		} else {
-			lines <- Line {
-				Code: "",
-				CodeTarget: "",
-				Text: line,
-				TextTarget: defaultTextOutput,
-			}
+			return s(data, inputLine)
 		}
 	}
 }
 
-func processDirective(directive string) {
+func processDirective(data StateData, directive string) BoundState {
 	switch directive {
 
 	case "!--":
-		state = Example
+		return partialState(stateExample, data)
 
 	case "#--":
-		state = Boilerplate
+		return partialState(stateBoilerplate, data)
 
 	default:
-		state = Code
 		if directive == "" {
-			currentTarget = defaultCodeOutput
+			data.CurrentTarget = data.DefaultCodeOutput
 		} else {
-			currentTarget = directive
+			data.CurrentTarget = directive
 		}
+		return partialState(stateCode, data)
 	}
+}
+
+func ProcessFile(filename string) (lines <-chan Line, err error) {
+	out := make(chan Line)
+
+	defaultCodeOutput := removeExtension(filename)
+	data := StateData {
+		DefaultCodeOutput: defaultCodeOutput,
+		DefaultTextOutput: removeExtensions(filename) + ".md",
+		CurrentTarget: defaultCodeOutput,
+		Output: out,
+	}
+
+	currentState := partialState(stateText, data)
+
+	input, err := os.Open(filename)
+	if err != nil {
+		return
+	}
+
+	scanner := bufio.NewScanner(input)
+
+	go func () {
+		defer close(data.Output)
+		defer input.Close()
+
+		for scanner.Scan() {
+			currentState = currentState(scanner.Text())
+		}
+
+		if err := scanner.Err(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}()
+
+	return out, nil
 }
 
 func ProcessFiles(writeCode, writeText bool, patterns ...string) {
@@ -236,7 +251,7 @@ func ProcessFiles(writeCode, writeText bool, patterns ...string) {
 						outputFiles[line.CodeTarget] = out
 					}
 
-					fmt.Fprint(out, line.Code)
+					fmt.Fprintln(out, line.Code)
 				}
 
 				if writeText && line.TextTarget != "" {
@@ -252,7 +267,7 @@ func ProcessFiles(writeCode, writeText bool, patterns ...string) {
 						outputFiles[line.TextTarget] = out
 					}
 
-					fmt.Fprint(out, line.Text)
+					fmt.Fprintln(out, line.Text)
 				}
 			}
 		}
