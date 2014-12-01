@@ -332,32 +332,34 @@ processed.
 
 				for line := range lines {
 					if writeCode && line.CodeTarget != "" {
-						out, ok := outputFiles[line.CodeTarget]
+						absCodeTarget := getAbsTargetPath(file, line.CodeTarget)
+						out, ok := outputFiles[absCodeTarget]
 						if !ok {
-							out, err = os.Create(line.CodeTarget)
+							out, err = os.Create(absCodeTarget)
 							if err != nil {
 								fmt.Fprintln(os.Stderr, err)
 								os.Exit(1)
 							}
 							defer out.Close()
-							fmt.Println("Writing code to", line.CodeTarget)
-							outputFiles[line.CodeTarget] = out
+							fmt.Println("Writing code to", absCodeTarget)
+							outputFiles[absCodeTarget] = out
 						}
 
 						fmt.Fprintln(out, line.Code)
 					}
 
 					if writeText && line.TextTarget != "" {
-						out, ok := outputFiles[line.TextTarget]
+						absTextTarget := getAbsTargetPath(file, line.TextTarget)
+						out, ok := outputFiles[absTextTarget]
 						if !ok {
-							out, err = os.Create(line.TextTarget)
+							out, err = os.Create(absTextTarget)
 							if err != nil {
 								fmt.Fprintln(os.Stderr, err)
 								os.Exit(1)
 							}
 							defer out.Close()
-							fmt.Println("Writing documentation to", line.TextTarget)
-							outputFiles[line.TextTarget] = out
+							fmt.Println("Writing documentation to", absTextTarget)
+							outputFiles[absTextTarget] = out
 						}
 
 						fmt.Fprintln(out, line.Text)
@@ -365,4 +367,23 @@ processed.
 				}
 			}
 		}
+	}
+
+Filenames in target directives are relative to the literate source, rather than
+the current working directory.
+
+	func getAbsTargetPath(source, targetPath string) string {
+		if filepath.IsAbs(targetPath) {
+			return targetPath
+		}
+
+		sourceDir := filepath.Dir(source)
+		path := filepath.Join(sourceDir, targetPath)
+		abs, err := filepath.Abs(path)
+
+		if err != nil {
+			panic(err)
+		}
+
+		return abs
 	}
