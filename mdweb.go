@@ -242,12 +242,20 @@ func ProcessFiles(writeCode, writeText bool, patterns ...string) {
 					absCodeTarget := getAbsTargetPath(file, line.CodeTarget)
 					out, ok := outputFiles[absCodeTarget]
 					if !ok {
+						err = os.MkdirAll(filepath.Dir(absCodeTarget), 0700)
+						if err != nil {
+							fmt.Fprintln(os.Stderr, err)
+							os.Exit(1)
+						}
+
 						out, err = os.Create(absCodeTarget)
 						if err != nil {
 							fmt.Fprintln(os.Stderr, err)
 							os.Exit(1)
 						}
+
 						defer out.Close()
+
 						fmt.Println("Writing code to", absCodeTarget)
 						outputFiles[absCodeTarget] = out
 					}
@@ -259,12 +267,20 @@ func ProcessFiles(writeCode, writeText bool, patterns ...string) {
 					absTextTarget := getAbsTargetPath(file, line.TextTarget)
 					out, ok := outputFiles[absTextTarget]
 					if !ok {
+						err = os.MkdirAll(filepath.Dir(absTextTarget), 0700)
+						if err != nil {
+							fmt.Fprintln(os.Stderr, err)
+							os.Exit(1)
+						}
+
 						out, err = os.Create(absTextTarget)
 						if err != nil {
 							fmt.Fprintln(os.Stderr, err)
 							os.Exit(1)
 						}
+
 						defer out.Close()
+
 						fmt.Println("Writing documentation to", absTextTarget)
 						outputFiles[absTextTarget] = out
 					}
@@ -286,7 +302,8 @@ func getAbsTargetPath(source, targetPath string) string {
 	abs, err := filepath.Abs(path)
 
 	if err != nil {
-		panic(err)
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
 
 	return abs
